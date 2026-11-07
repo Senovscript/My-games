@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🎮 Мои Пиксельные Игры</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-tap-highlight-color: transparent; }
+  body, html { width: 100%; height: 100%; background: #0d0d0d; overflow: hidden; font-family: 'Press Start 2P', 'Courier New', monospace; color: #fff; }
+  
+  .screen { display: none; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+  .screen.active { display: flex; flex-direction: column; }
+
+  #menu-screen {
+    background-image: radial-gradient(circle at 20% 20%, rgba(125, 255, 138, 0.05) 0%, transparent 40%),
+                      radial-gradient(circle at 80% 80%, rgba(176, 48, 48, 0.05) 0%, transparent 40%);
+    overflow-y: auto;
+  }
+  
+  header { text-align: center; padding: 40px 20px 20px; border-bottom: 2px solid #222; }
+  h1 { font-size: clamp(18px, 5vw, 32px); color: #7dff8a; text-shadow: 3px 3px 0 #000, 0 0 20px rgba(125, 255, 138, 0.5); letter-spacing: 2px; margin-bottom: 10px; }
+  header p { color: #666; font-size: 10px; }
+
+  main { flex: 1; padding: 30px 20px; display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; align-items: flex-start; }
+
+  .card {
+    background: #1a1a1a; border: 3px solid #333; border-radius: 8px; width: 280px; padding: 20px;
+    text-decoration: none; color: #fff; display: block; transition: all 0.2s ease;
+    box-shadow: 0 6px 0 #000; cursor: pointer;
+  }
+  .card:hover { transform: translateY(-5px); border-color: #7dff8a; box-shadow: 0 6px 0 #000, 0 15px 30px rgba(125, 255, 138, 0.3); }
+  .card-icon { font-size: 40px; text-align: center; margin-bottom: 15px; display: block; }
+  .card h2 { font-size: 12px; text-align: center; margin-bottom: 10px; color: #7dff8a; }
+  .card p { font-size: 8px; text-align: center; color: #888; line-height: 1.6; margin-bottom: 15px; }
+  .card-badge { display: block; text-align: center; font-size: 8px; color: #ffd700; border: 1px solid #ffd700; padding: 6px; border-radius: 4px; }
+
+  #game-screen { background: #111; align-items: center; justify-content: center; position: relative; }
+  
+  #back-btn {
+    position: absolute; top: 15px; left: 15px; z-index: 100;
+    background: #222; border: 2px solid #555; color: #fff; padding: 10px 15px;
+    font-family: inherit; font-size: 10px; cursor: pointer; border-radius: 6px;
+  }
+  #back-btn:active { background: #444; }
+
+  canvas { 
+    display: block; image-rendering: pixelated; box-shadow: 0 0 30px rgba(0,0,0,0.8); border: 4px solid #333;
+    max-width: 100%; max-height: 100%;
+  }
+</style>
+</head>
+<body>
+
+<div id="menu-screen" class="screen active">
+  <header>
+    <h1>🎮 МОИ ИГРЫ</h1>
+    <p>PIXEL GAMES PORTAL</p>
+  </header>
+
+  <main>
+    <div class="card" onclick="startFlappy()">
+      <span class="card-icon">🐦</span>
+      <h2>FLAPPY BIRD</h2>
+      <p>Пиксельная птица, зелёные трубы<br>и бесконечный рекорд</p>
+      <span class="card-badge">ИГРАТЬ →</span>
+    </div>
+
+    <div class="card" style="opacity: 0.4; cursor: not-allowed; border-style: dashed;">
+      <span class="card-icon">➕</span>
+      <h2>СКОРО...</h2>
+      <p>Здесь появятся новые игры</p>
+      <span class="card-badge" style="color:#666; border-color:#333;">В РАЗРАБОТКЕ</span>
+    </div>
+  </main>
+</div>
+
+<div id="game-screen" class="screen">
+  <button id="back-btn" onclick="exitFlappy()">← В МЕНЮ</button>
+  <canvas id="gameCanvas"></canvas>
+</div>
+
+<script>
+let isGameRunning = false;
+
+function startFlappy() {
+  document.getElementById('menu-screen').classList.remove('active');
+  document.getElementById('game-screen').classList.add('active');
+  
+  resizeCanvas();
+  if (!isGameRunning) {
+    isGameRunning = true;
+    gameLoop();
+  }
+  gameState = STATE_MENU;
+}
+
+function exitFlappy() {
+  document.getElementById('game-screen').classList.remove('active');
+  document.getElementById('menu-screen').classList.add('active');
+  gameState = STATE_MENU;
+}
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const GAME_WIDTH = 400;
+const GAME_HEIGHT = 600;
+
+const STATE_MENU = 0;
+const STATE_PLAY = 1;
+const STATE_OVER = 2;
+let gameState = STATE_MENU;
+
+let score = 0;
+let bestScore = parseInt(localStorage.getItem('flappyBest')) || 0;
+
+const GRAVITY = 0.12;      
+const JUMP = -3.5;         
+const PIPE_SPEED = 1.2;    
+const PIPE_GAP = 160;
+const PIPE_WIDTH = 65;
+const SPAWN_RATE = 220;    
+
+let frameCount = 0;
+
+const bird = { x: 80, y: GAME_HEIGHT / 2, vy: 0, width: 34, height: 24, rotation: 0 };
+let pipes = [];
+
+function resizeCanvas() {
+  const scale = Math.min(window.innerWidth / GAME_WIDTH, window.innerHeight / GAME_HEIGHT);
+  canvas.width = GAME_WIDTH;
+  canvas.height = GAME_HEIGHT;
+  canvas.style.width = GAME_WIDTH * scale + 'px';
+  canvas.style.height = GAME_HEIGHT * scale + 'px';
+}
+window.addEventListener('resize', () => { if(isGameRunning) resizeCanvas(); });
+
+function handleInput() {
+  if (gameState === STATE_MENU) {
+    gameState = STATE_PLAY;
+    resetGame();
+    bird.vy = JUMP;
+  } else if (gameState === STATE_PLAY) {
+    bird.vy = JUMP;
+  } else if (gameState === STATE_OVER) {
+    if (frameCount > 30) {
+      gameState = STATE_MENU;
+      frameCount = 0;
+    }
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  if (gameState !== STATE_MENU && (e.code === 'Space' || e.code === 'ArrowUp')) { e.preventDefault(); handleInput(); }
+});
+canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); handleInput(); });
+
+function resetGame() {
+  score = 0;
+  bird.y = GAME_HEIGHT / 2;
+  bird.vy = 0;
+  bird.rotation = 0;
+  pipes = [];
+  frameCount = 0;
+}
+
+function spawnPipe() {
+  const minHeight = 50;
+  const maxHeight = GAME_HEIGHT - PIPE_GAP - minHeight - 100; 
+  const topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+  pipes.push({ x: GAME_WIDTH, top: topHeight, bottom: topHeight + PIPE_GAP, passed: false });
+}
+
+function update() {
+  if (gameState === STATE_MENU) return;
+  frameCount++;
+  
+  if (gameState === STATE_PLAY) {
+    bird.vy += GRAVITY;
+    bird.y += bird.vy;
+    
+    if (bird.vy < 0) bird.rotation = -0.3;
+    else bird.rotation = Math.min(Math.PI / 2, bird.rotation + 0.02); 
+
+    if (frameCount % SPAWN_RATE === 0) spawnPipe();
+
+    for (let i = pipes.length - 1; i >= 0; i--) {
+      let p = pipes[i];
+      p.x -= PIPE_SPEED;
+
+      if (!p.passed && p.x + PIPE_WIDTH < bird.x) {
+        p.passed = true;
+        score++;
+        if (score > bestScore) { bestScore = score; localStorage.setItem('flappyBest', bestScore); }
+      }
+
+      if (p.x + PIPE_WIDTH < 0) pipes.splice(i, 1);
+
+      const birdBox = { x: bird.x - bird.width/2, y: bird.y - bird.height/2, w: bird.width, h: bird.height };
+      const topPipeBox = { x: p.x, y: 0, w: PIPE_WIDTH, h: p.top };
+      const botPipeBox = { x: p.x, y: p.bottom, w: PIPE_WIDTH, h: GAME_HEIGHT - p.bottom };
+
+      if (checkCollision(birdBox, topPipeBox) || checkCollision(birdBox, botPipeBox)) {
+        gameState = STATE_OVER; frameCount = 0;
+      }
+    }
+
+    if (bird.y + bird.height/2 > GAME_HEIGHT - 80 || bird.y - bird.height/2 < 0) {
+      gameState = STATE_OVER; frameCount = 0;
+    }
+  }
+}
+
+function checkCollision(r1, r2) {
+  return !(r2.x > r1.x + r1.w || r2.x + r2.w < r1.x || r2.y > r1.y + r1.h || r2.y + r2.h < r1.y);
+}
+
+function drawBackground() {
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT);
+  skyGrad.addColorStop(0, '#4ec0ca'); skyGrad.addColorStop(1, '#8ed6e0');
+  ctx.fillStyle = skyGrad; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  const cloudOffset = (frameCount * 0.3) % (GAME_WIDTH + 100);
+  drawCloud(GAME_WIDTH - cloudOffset, 100, 1); drawCloud(GAME_WIDTH - cloudOffset - 250, 150, 0.7);
+
+  ctx.fillStyle = '#ded895'; ctx.fillRect(0, GAME_HEIGHT - 80, GAME_WIDTH, 20);
+  ctx.fillStyle = '#73bf2e'; ctx.fillRect(0, GAME_HEIGHT - 80, GAME_WIDTH, 10);
+  ctx.fillStyle = '#5a9e22'; ctx.fillRect(0, GAME_HEIGHT - 70, GAME_WIDTH, 5);
+  ctx.fillStyle = '#c2b280'; ctx.fillRect(0, GAME_HEIGHT - 60, GAME_WIDTH, 60);
+}
+
+function drawCloud(x, y, scale) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(scale, scale);
+  ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI*2); ctx.arc(20, -10, 25, 0, Math.PI*2); ctx.arc(45, 0, 20, 0, Math.PI*2);
+  ctx.fill(); ctx.restore();
+}
+
+function drawPipes() {
+  pipes.forEach(p => {
+    const drawPipePart = (x, y, w, h, isTop) => {
+      ctx.fillStyle = '#5a9e22'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#73bf2e'; ctx.fillRect(x + 5, y, w - 20, h);
+      ctx.fillStyle = '#3b6b16'; ctx.fillRect(x + w - 10, y, 10, h);
+      ctx.fillStyle = '#5a9e22'; ctx.fillRect(x - 5, isTop ? y + h - 30 : y, w + 10, 30);
+      ctx.fillStyle = '#73bf2e'; ctx.fillRect(x, isTop ? y + h - 30 : y, w - 15, 30);
+      ctx.fillStyle = '#3b6b16'; ctx.fillRect(x + w - 5, isTop ? y + h - 30 : y, 15, 30);
+      ctx.strokeStyle = '#2a4d0f'; ctx.lineWidth = 3; ctx.strokeRect(x, y, w, h); ctx.strokeRect(x - 5, isTop ? y + h - 30 : y, w + 10, 30);
+    };
+    drawPipePart(p.x, 0, PIPE_WIDTH, p.top, true);
+    drawPipePart(p.x, p.bottom, PIPE_WIDTH, GAME_HEIGHT - p.bottom, false);
+  });
+}
+
+function drawBird() {
+  ctx.save(); ctx.translate(bird.x, bird.y); ctx.rotate(bird.rotation);
+  ctx.fillStyle = '#f4d03f'; ctx.fillRect(-17, -12, 34, 24);
+  ctx.fillStyle = '#f1c40f'; ctx.fillRect(-17, 5, 34, 7);
+  ctx.fillStyle = '#e67e22'; let wingY = (bird.vy < 0) ? -8 : 4; ctx.fillRect(-10, wingY, 16, 8);
+  ctx.strokeStyle = '#d35400'; ctx.lineWidth = 2; ctx.strokeRect(-10, wingY, 16, 8);
+  ctx.fillStyle = '#fff'; ctx.fillRect(5, -10, 10, 10);
+  ctx.fillStyle = '#000'; ctx.fillRect(10, -7, 4, 4);
+  ctx.fillStyle = '#e74c3c'; ctx.beginPath(); ctx.moveTo(17, -4); ctx.lineTo(28, 0); ctx.lineTo(17, 6); ctx.fill();
+  ctx.strokeStyle = '#b7950b'; ctx.lineWidth = 2; ctx.strokeRect(-17, -12, 34, 24);
+  ctx.restore();
+}
+
+function drawUI() {
+  ctx.font = 'bold 48px "Courier New"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#000'; ctx.fillText(score, GAME_WIDTH / 2 + 3, 53);
+  ctx.fillStyle = '#fff'; ctx.fillText(score, GAME_WIDTH / 2, 50);
+
+  if (gameState === STATE_MENU) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(40, 150, GAME_WIDTH - 80, 200);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 24px "Courier New"'; ctx.fillText('PIXEL FLAPPY', GAME_WIDTH / 2, 190);
+    ctx.font = '16px "Courier New"'; ctx.fillText('Нажми, чтобы летать', GAME_WIDTH / 2, 240);
+    ctx.fillText(`Рекорд: ${bestScore}`, GAME_WIDTH / 2, 280);
+    ctx.fillStyle = '#f4d03f'; ctx.fillText('ТАПНИ ДЛЯ СТАРТА', GAME_WIDTH / 2, 320);
+  } else if (gameState === STATE_OVER) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(40, 150, GAME_WIDTH - 80, 220);
+    ctx.fillStyle = '#e74c3c'; ctx.font = 'bold 32px "Courier New"'; ctx.fillText('GAME OVER', GAME_WIDTH / 2, 190);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 20px "Courier New"'; ctx.fillText(`Счет: ${score}`, GAME_WIDTH / 2, 250);
+    ctx.fillText(`Рекорд: ${bestScore}`, GAME_WIDTH / 2, 280);
+    ctx.font = '16px "Courier New"'; ctx.fillStyle = '#aaa';
+    if (frameCount > 30) ctx.fillText('Тапни для выхода в меню', GAME_WIDTH / 2, 340);
+  }
+}
+
+function gameLoop() {
+  if (!isGameRunning) return;
+  update(); drawBackground(); drawPipes(); drawBird(); drawUI();
+  requestAnimationFrame(gameLoop);
+}
+</script>
+</body>
+</html>
